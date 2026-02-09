@@ -12,9 +12,13 @@ from ui.export import render_download_button
 
 
 def render():
-    """Render the main page."""
-    st.title("🏁 Motorsport Data Collector")
+    """Render the full page (with title) — used when app runs standalone."""
+    st.title("🏁 MotorsportBot")
+    render_content()
 
+
+def render_content():
+    """Render the connector content (without title) — used inside a tab."""
     # --- Compact fetch bar ---
     render_fetch_bar()
 
@@ -68,40 +72,43 @@ def render_fetch_bar():
 
 
 def render_events(series):
-    """Display events with their sessions underneath."""
-    for event in series.events:
-        # Date range display
-        if event.start_date == event.end_date:
-            date_str = event.start_date.strftime("%b %-d, %Y")
-        else:
-            if event.start_date.month == event.end_date.month:
-                date_str = (
-                    f"{event.start_date.strftime('%b %-d')}"
-                    f" – {event.end_date.strftime('%-d, %Y')}"
-                )
+    """Display events as cards with sessions inside."""
+    for idx, event in enumerate(series.events, start=1):
+        with st.container(border=True):
+            st.caption(f"RACE WEEK {idx}")
+
+            # Date range logic
+            if event.start_date == event.end_date:
+                date_str = event.start_date.strftime("%b %-d, %Y")
             else:
-                date_str = (
-                    f"{event.start_date.strftime('%b %-d')}"
-                    f" – {event.end_date.strftime('%b %-d, %Y')}"
-                )
+                if event.start_date.month == event.end_date.month:
+                    date_str = (
+                        f"{event.start_date.strftime('%b %-d')}"
+                        f" – {event.end_date.strftime('%-d, %Y')}"
+                    )
+                else:
+                    date_str = (
+                        f"{event.start_date.strftime('%b %-d')}"
+                        f" – {event.end_date.strftime('%b %-d, %Y')}"
+                    )
 
-        # Venue info
-        venue_parts = []
-        if event.venue.circuit:
-            venue_parts.append(event.venue.circuit)
-        if event.venue.city:
-            venue_parts.append(event.venue.city)
-        if event.venue.region:
-            venue_parts.append(event.venue.region)
-        venue_str = ", ".join(venue_parts) if venue_parts else ""
+            # Venue logic
+            venue_parts = []
+            if event.venue.circuit:
+                venue_parts.append(event.venue.circuit)
+            if event.venue.city:
+                venue_parts.append(event.venue.city)
+            if event.venue.region:
+                venue_parts.append(event.venue.region)
+            venue_str = ", ".join(venue_parts) if venue_parts else ""
 
-        # Expander for each event
-        header = f"**{event.name}** · {date_str}"
-        if venue_str:
-            header += f" · _{venue_str}_"
+            # Event Header
+            st.markdown(f"#### {event.name}")
+            st.markdown(f"**{date_str}** · _{venue_str}_")
 
-        with st.expander(header, expanded=False):
-            render_sessions(event)
+            # Sessions expander
+            with st.expander("View Sessions", expanded=False):
+                render_sessions(event)
 
 
 def render_sessions(event):
