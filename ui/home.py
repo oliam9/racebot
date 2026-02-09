@@ -1,5 +1,5 @@
 """
-Home page - series/season selection and data fetching.
+Home page — fetch data and display events with sessions inline.
 """
 
 import streamlit as st
@@ -8,201 +8,225 @@ from datetime import datetime
 from connectors import list_available_series, get_connector
 from models.schema import Series
 from validators import DataValidator
-from normalizer import DataNormalizer
+from ui.export import render_download_button
 
 
 def render():
-    """Render the home page."""
+    """Render the main page."""
     st.title("🏁 Motorsport Data Collector")
-    st.markdown("Fetch, edit, and export motorsport schedule data")
-    
-    # Two columns: Fetch new data | Upload existing data
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.header("📥 Fetch New Data")
-        render_fetch_section()
-    
-    with col2:
-        st.header("📤 Upload Previous Export")
-        render_upload_section()
-    
-    # Show current data status
+
+    # --- Compact fetch bar ---
+    render_fetch_bar()
+
+    # --- Show results directly ---
     if "series" in st.session_state and st.session_state.series:
-        st.divider()
-        st.success(
-            f"✅ Loaded: **{st.session_state.series.name}** "
-            f"({st.session_state.series.season})"
+        series = st.session_state.series
+        st.markdown(
+            f"**{series.name}** — {series.season} season · "
+            f"{len(series.events)} events"
         )
-        st.info(f"📊 {len(st.session_state.series.events)} events loaded")
+        render_download_button(series)
+        st.divider()
+        render_events(series)
+    else:
+        st.info("Select a series and click **Fetch** to load the schedule.")
 
 
-def render_fetch_section():
-    """Render the fetch new data section."""
-    # Get available series
+def render_fetch_bar():
+    """Compact fetch controls in a single row."""
     available_series = list_available_series()
-    
     if not available_series:
         st.error("No data connectors available")
         return
-    
-    # Series selector
+
     series_options = {
-        f"{s.name} ({s.connector_id})": s.series_id
-        for s in available_series
+        s.name: s.series_id for s in available_series
     }
-    
-    selected_display = st.selectbox(
-        "Select Series",
-        options=list(series_options.keys()),
-        key="series_selector"
-    )
-    
-    selected_series_id = series_options[selected_display]
-    
-    # Season input
-    current_year = datetime.now().year
-    season = st.number_input(
-        "Season (Year)",
-        min_value=2020,
-        max_value=current_year + 1,
-        value=current_year,
-        key="season_input"
-    )
-    
-    # Fetch button
-    if st.button("🚀 Fetch & Build Draft", type="primary", use_container_width=True):
-        fetch_data(selected_series_id, season)
+
+    col1, col2, col3 = st.columns([3, 1.5, 1])
+    with col1:
+        selected_name = st.selectbox(
+            "Series",
+            options=list(series_options.keys()),
+            key="series_selector",
+            label_visibility="collapsed",
+        )
+    with col2:
+        current_year = datetime.now().year
+        season = st.number_input(
+            "Season",
+            min_value=2020,
+            max_value=current_year + 1,
+            value=current_year,
+            key="season_input",
+            label_visibility="collapsed",
+        )
+    with col3:
+        if st.button("🚀 Fetch", type="primary", use_container_width=True):
+            series_id = series_options[selected_name]
+            fetch_data(series_id, season)
 
 
-def render_upload_section():
-    """Render the upload previous export section."""
-    st.markdown("Upload a previously exported JSON file to continue editing")
-    
-    uploaded_file = st.file_uploader(
-        "Choose JSON file",
-        type=["json"],
-        key="json_uploader"
-    )
-    
-    if uploaded_file is not None:
-        try:
-            # Read and parse JSON
-            content = uploaded_file.read().decode("utf-8")
-            data = json.loads(content)
-            
-            # Check if it has export manifest
-            if "manifest" in data and "series" in data:
-                series_data = data["series"]
-            else:
-                # Assume it's just the series data
-                series_data = data
-            
-            # Load into Series model
-            series = Series.from_dict(series_data)
-            
-            # Store in session state
-            st.session_state.series = series
-            st.session_state.original_series = series.model_copy(deep=True)
-            
-            # Run validation
-            validator = DataValidator()
-            validation_result = validator.validate_series(series)
-            st.session_state.validation_result = validation_result
-            
-            st.success(f"✅ Loaded {series.name} ({series.season})")
-            st.info(f"📊 {len(series.events)} events loaded")
-            
-            # Show validation summary
-            if validation_result.total_issues > 0:
-                st.warning(
-                    f"⚠️ {validation_result.total_issues} validation issues found "
-                    f"({len(validation_result.errors)} errors, "
-                    f"{len(validation_result.warnings)} warnings)"
+def render_events(series):
+    """Display events with their sessions underneath."""
+    for event in series.events:
+        # Date range display
+        if event.start_date == event.end_date:
+            date_str = event.start_date.strftime("%b %-d, %Y")
+        else:
+            if event.start_date.month == event.end_date.month:
+                date_str = (
+                    f"{event.start_date.strftime('%b %-d')}"
+                    f" – {event.end_date.strftime('%-d, %Y')}"
                 )
-            
-            # Suggest switching to review page
-            st.info("👉 Go to **Review & Edit** page to view and edit the data")
-            
-        except Exception as e:
-            st.error(f"Failed to load JSON: {str(e)}")
+            else:
+                date_str = (
+                    f"{event.start_date.strftime('%b %-d')}"
+                    f" – {event.end_date.strftime('%b %-d, %Y')}"
+                )
+
+        # Venue info
+        venue_parts = []
+        if event.venue.circuit:
+            venue_parts.append(event.venue.circuit)
+        if event.venue.city:
+            venue_parts.append(event.venue.city)
+        if event.venue.region:
+            venue_parts.append(event.venue.region)
+        venue_str = ", ".join(venue_parts) if venue_parts else ""
+
+        # Expander for each event
+        header = f"**{event.name}** · {date_str}"
+        if venue_str:
+            header += f" · _{venue_str}_"
+
+        with st.expander(header, expanded=False):
+            render_sessions(event)
+
+
+def render_sessions(event):
+    """Display sessions table for an event."""
+    if not event.sessions:
+        st.caption("No session details available — TBC")
+        return
+
+    # Group sessions by date
+    from collections import OrderedDict
+
+    sessions_by_date: OrderedDict = OrderedDict()
+    for session in event.sessions:
+        if session.start:
+            try:
+                dt = datetime.fromisoformat(session.start.replace("Z", "+00:00"))
+                day_key = dt.strftime("%A, %b %d")
+            except ValueError:
+                day_key = "TBC"
+        else:
+            day_key = "TBC"
+        sessions_by_date.setdefault(day_key, []).append(session)
+
+    for day, day_sessions in sessions_by_date.items():
+        st.markdown(f"**{day}**")
+
+        rows = []
+        for s in day_sessions:
+            # Format time
+            if s.start:
+                try:
+                    dt = datetime.fromisoformat(s.start.replace("Z", "+00:00"))
+                    time_str = dt.strftime("%-I:%M %p")
+                except ValueError:
+                    time_str = "TBC"
+            else:
+                time_str = "TBC"
+
+            rows.append(
+                {
+                    "Session": s.name,
+                    "Time": time_str,
+                    "Type": s.type.value.title(),
+                    "Status": s.status.value if s.status.value != "TBD" else "TBC",
+                }
+            )
+
+        import pandas as pd
+
+        df = pd.DataFrame(rows)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+
+# ------------------------------------------------------------------
+# Data loading
+# ------------------------------------------------------------------
 
 
 def fetch_data(series_id: str, season: int):
-    """
-    Fetch data for a series and season.
-    
-    Args:
-        series_id: Series identifier
-        season: Season year
-    """
-    with st.spinner("Fetching data..."):
+    """Fetch data for a series/season and store in session state."""
+    with st.spinner("Fetching schedule from IndyCar.com…"):
         try:
-            # Find connector
             connector = None
             for series_desc in list_available_series():
                 if series_desc.series_id == series_id:
                     connector = get_connector(series_desc.connector_id)
                     break
-            
+
             if not connector:
                 st.error(f"No connector found for series: {series_id}")
                 return
-            
-            # Fetch raw data
-            st.info(f"📡 Fetching from {connector.name}...")
+
             raw_payload = connector.fetch_season(series_id, season)
-            
-            # Extract events
-            st.info("🔍 Extracting events...")
             events = connector.extract(raw_payload)
-            
-            # Normalize
-            st.info("🔧 Normalizing data...")
             events = connector.normalize(events)
-            
-            # Create Series object
+
             series_desc = next(
-                s for s in connector.supported_series()
+                s
+                for s in connector.supported_series()
                 if s.series_id == series_id
             )
-            
+
             series = Series(
                 series_id=series_id,
                 name=series_desc.name,
                 season=season,
                 category=series_desc.category,
-                events=events
+                events=events,
             )
-            
-            # Validate
-            st.info("✅ Validating...")
+
             validator = DataValidator()
             validation_result = validator.validate_series(series)
-            
-            # Store in session state
+
             st.session_state.series = series
             st.session_state.original_series = series.model_copy(deep=True)
             st.session_state.validation_result = validation_result
-            
-            st.success(
-                f"✅ Successfully fetched {len(events)} events for "
-                f"{series_desc.name} {season}"
-            )
-            
-            # Show validation summary
-            if validation_result.total_issues > 0:
-                st.warning(
-                    f"⚠️ {validation_result.total_issues} validation issues found "
-                    f"({len(validation_result.errors)} errors, "
-                    f"{len(validation_result.warnings)} warnings)"
-                )
-            else:
-                st.success("✅ No validation issues found!")
-            
-            st.info("👉 Go to **Review & Edit** page to view and edit the data")
-            
+
+            st.rerun()
+
         except Exception as e:
             st.error(f"Failed to fetch data: {str(e)}")
             import traceback
+
             st.code(traceback.format_exc())
+
+
+def handle_upload(uploaded_file):
+    """Handle uploaded JSON file."""
+    try:
+        content = uploaded_file.read().decode("utf-8")
+        data = json.loads(content)
+
+        if "manifest" in data and "series" in data:
+            series_data = data["series"]
+        else:
+            series_data = data
+
+        series = Series.from_dict(series_data)
+        st.session_state.series = series
+        st.session_state.original_series = series.model_copy(deep=True)
+
+        validator = DataValidator()
+        validation_result = validator.validate_series(series)
+        st.session_state.validation_result = validation_result
+
+        st.rerun()
+    except Exception as e:
+        st.sidebar.error(f"Upload failed: {str(e)}")
