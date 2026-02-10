@@ -12,11 +12,13 @@ from .registry import (
 from .indycar import IndyCarConnector
 from .generic import GenericWebConnector
 from .motogp import MotoGPConnector
+from .f1 import F1Connector
 from models.enums import SeriesCategory
 
 # Auto-register all connectors
 register_connector(IndyCarConnector())
 register_connector(MotoGPConnector())
+register_connector(F1Connector())
 
 # Register generic connector with known series that use URL-based scraping
 register_connector(
@@ -40,4 +42,5 @@ __all__ = [
     "IndyCarConnector",
     "GenericWebConnector",
     "MotoGPConnector",
+    "F1Connector",
 ]

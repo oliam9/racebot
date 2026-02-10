@@ -72,30 +72,12 @@ def render_fetch_bar():
             label_visibility="collapsed",
         )
 
-    # URL input - now available for ALL series
-    # Optional: if provided, will use generic web scraping
-    target_url = st.text_input(
-        "🌐 Schedule page URL (optional)",
-        placeholder="Paste a custom schedule/calendar page URL here…",
-        key="target_url_input",
-        help="Optional: Paste the URL of any official schedule page. If provided, will use generic web scraping for this series.",
-    )
-    
-    # Get series info for validation
     series_id = series_options[selected_name]
     connector_id = connector_map[series_id]
-    registry = get_registry()
-    connector = registry.get(connector_id)
-    needs_url = getattr(connector, "needs_url", False)
 
     with col3:
         if st.button("🚀 Fetch", type="primary", use_container_width=True):
-            # Only require URL if connector specifically needs it
-            if needs_url and not target_url:
-                st.error("This series requires a schedule page URL. Please paste it above.")
-                return
-            # Otherwise, URL is optional - will use it if provided
-            fetch_data(series_id, season, target_url=target_url if target_url else None)
+            fetch_data(series_id, season)
 
 
 def render_events(series):
@@ -218,7 +200,7 @@ def render_sessions(event):
 # ------------------------------------------------------------------
 
 
-def fetch_data(series_id: str, season: int, target_url: Optional[str] = None):
+def fetch_data(series_id: str, season: int):
     """Fetch data for a series/season and store in session state."""
     with st.spinner("Fetching schedule data…"):
         try:
@@ -231,10 +213,6 @@ def fetch_data(series_id: str, season: int, target_url: Optional[str] = None):
             if not connector:
                 st.error(f"No connector found for series: {series_id}")
                 return
-
-            # Set target URL for generic connectors
-            if target_url and hasattr(connector, "set_target_url"):
-                connector.set_target_url(target_url)
 
             raw_payload = connector.fetch_season(series_id, season)
             events = connector.extract(raw_payload)

@@ -24,6 +24,7 @@ class MotoGPConnector(Connector):
     
     def __init__(self):
         super().__init__()
+        self._motogp_category_id = None  # Cache MotoGP category ID
         
     @property
     def id(self) -> str:
@@ -62,6 +63,53 @@ class MotoGPConnector(Connector):
         except Exception as e:
             logger.error(f"Failed to fetch MotoGP seasons: {e}")
             return None
+    
+    def _get_motogp_category_id(self, season_uuid: str) -> Optional[str]:
+        """Fetch the MotoGP category UUID (cached)."""
+        if self._motogp_category_id:
+            return self._motogp_category_id
+            
+        try:
+            url = f"{self.API_BASE}/results/categories"
+            params = {"seasonUuid": season_uuid}
+            resp = httpx.get(url, params=params, timeout=10.0)
+            resp.raise_for_status()
+            
+            categories = resp.json()
+            for cat in categories:
+                # MotoGP has legacy_id=3 or name contains "MotoGP"
+                if cat.get("legacy_id") == 3 or "MotoGP" in cat.get("name", ""):
+                    self._motogp_category_id = cat.get("id")
+                    return self._motogp_category_id
+            
+            # Fallback to first category
+            if categories:
+                self._motogp_category_id = categories[0].get("id")
+                return self._motogp_category_id
+                
+            logger.warning("MotoGP category not found")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch MotoGP categories: {e}")
+            return None
+    
+    def _get_event_sessions(self, event_id: str, category_id: str) -> List[Dict[str, Any]]:
+        """Fetch sessions for a specific event."""
+        try:
+            url = f"{self.API_BASE}/results/sessions"
+            params = {
+                "eventUuid": event_id,
+                "categoryUuid": category_id
+            }
+            resp = httpx.get(url, params=params, timeout=10.0)
+            resp.raise_for_status()
+            
+            return resp.json()
+            
+        except Exception as e:
+            logger.warning(f"Failed to fetch sessions for event {event_id}: {e}")
+            return []
 
     def fetch_season(self, series_id: str, season: int) -> RawSeriesPayload:
         """Fetch full season data from API."""
@@ -90,7 +138,11 @@ class MotoGPConnector(Connector):
                 retrieved_at=datetime.utcnow(),
                 url=str(resp.url),
                 content_type="application/json",
-                metadata={"series_id": series_id, "season": season}
+                metadata={
+                    "series_id": series_id, 
+                    "season": season,
+                    "season_uuid": season_uuid  # Store for session fetching
+                }
             )
             
         except Exception as e:
@@ -109,9 +161,9 @@ class MotoGPConnector(Connector):
             
         events = []
         for item in data:
-            # Filter for GP events only (exclude tests/media if api params didn't catch them)
-            # kind can be "GP", "TEST", "MEDIA"
-            if item.get("kind") != "GP":
+            # Filter for GP events only (exclude tests)
+            # 'test' field is True for test events, False for GP events
+            if item.get("test") == True:
                 continue
                 
             try:
@@ -142,30 +194,32 @@ class MotoGPConnector(Connector):
         
         # Venue info
         circuit_info = data.get("circuit", {})
-        place_info = data.get("place", {}) or {}
+        country_info = data.get("country", {})
         
         # Sometimes circuit is null but place is present (common for TBD events)
         circuit_name = circuit_info.get("name") if circuit_info else "TBD"
-        city = circuit_info.get("place") if circuit_info else place_info.get("city")
-        country_code = circuit_info.get("nation") if circuit_info else data.get("country")
+        city = circuit_info.get("place") if circuit_info else None
+        country_code = circuit_info.get("nation") if circuit_info else country_info.get("iso", "Unknown")
         
-        # Timezone
-        # API provides "time_zone": "EUROPE/MADRID"
-        tz_name = data.get("time_zone", "UTC")
+        # Infer timezone from country code
+        from validators.timezone_utils import infer_timezone_from_location
+        tz_name, _ = infer_timezone_from_location(city=city, country=country_code) if city else (None, False)
+        if not tz_name:
+            tz_name = "UTC"
         
-        # Sessions
+        # Fetch sessions from API
         sessions = []
-        api_schedule = data.get("broadcasts", []) # Actual sessions seem to be in 'broadcasts' list with type='SESSION'
+        event_id = data.get("id")
+        season_uuid = raw.metadata.get("season_uuid")
         
-        # Check if broadcasts is the right place, debug output had 'broadcasts' with valid sessions
-        # But sometimes schedules are nested differently. data['schedule'] exists too.
-        # Based on motogp_api_4.json, 'broadcasts' contains sessions.
-        
-        for b in api_schedule:
-            if b.get("type") == "SESSION" and b.get("kind") in ["PRACTICE", "QUALIFYING", "RACE", "SPRINT"]:
-                session = self._parse_session(b, tz_name)
-                if session:
-                    sessions.append(session)
+        if event_id and season_uuid:
+            category_id = self._get_motogp_category_id(season_uuid)
+            if category_id:
+                session_data = self._get_event_sessions(event_id, category_id)
+                for sess in session_data:
+                    session = self._parse_session(sess)
+                    if session:
+                        sessions.append(session)
         
         # Construct Source
         source = Source(
@@ -178,7 +232,7 @@ class MotoGPConnector(Connector):
         
         return Event(
             event_id=data.get("id"),
-            series_id=raw.series_id,
+            series_id=raw.metadata.get("series_id", "motogp"),
             name=name,
             start_date=start_date,
             end_date=end_date,
@@ -192,29 +246,38 @@ class MotoGPConnector(Connector):
             sources=[source]
         )
 
-    def _parse_session(self, data: Dict[str, Any], tz_name: str) -> Optional[Session]:
-        """Parse session object."""
-        name = data.get("name", "Unknown Session")
-        short_name = data.get("shortname", "")
-        kind = data.get("kind", "")
+    def _parse_session(self, data: Dict[str, Any]) -> Optional[Session]:
+        """Parse session object from API response."""
         
-        # Refine name if needed
-        # Example: shortname="RACE", name="Race" -> OK
-        # Example: shortname="Q2", name="Qualifying 2" -> OK
+        # Session type from API: "FP" (free practice), "Q" (qualifying), "RAC" (race), "SPR" (sprint)
+        session_type_str = data.get("type", "")
+        number = data.get("number", 1)
         
-        # Map to SessionType
-        stype = SessionType.PRACTICE
-        if kind == "RACE":
+        # Map API type to SessionType
+        if session_type_str == "RAC":
             stype = SessionType.RACE
-        elif kind == "QUALIFYING":
+            name = "Race"
+        elif session_type_str == "SPR":
+            stype = SessionType.RACE
+            name = "Sprint Race"
+        elif session_type_str == "Q":
             stype = SessionType.QUALIFYING
-        elif kind == "SPRINT":
-            stype = SessionType.RACE # Or separate type if supported? Schema has RACE.
-            name = f"Sprint Rate - {name}"
-            
-        # Dates
-        start = data.get("date_start")
-        end = data.get("date_end")
+            name = f"Qualifying {number}" if number > 1 else "Qualifying"
+        elif session_type_str == "FP":
+            stype = SessionType.PRACTICE
+            name = f"Free Practice {number}"
+        elif session_type_str == "PR":
+            stype = SessionType.PRACTICE
+            name = f"Practice {number}" if number else "Practice"
+        elif session_type_str == "WUP":
+            stype = SessionType.WARMUP
+            name = "Warm Up"
+        else:
+            stype = SessionType.PRACTICE
+            name = f"{session_type_str} {number}" if number else session_type_str
+        
+        # Date (ISO format with timezone)
+        start = data.get("date")
         
         if not start:
             return None
@@ -222,11 +285,20 @@ class MotoGPConnector(Connector):
         # ID
         sid = data.get("id")
         
+        # Status
+        status_str = data.get("status", "SCHEDULED")
+        if status_str == "FINISHED":
+            status = SessionStatus.SCHEDULED  # Use SCHEDULED for completed sessions
+        elif status_str == "CANCELLED":
+            status = SessionStatus.CANCELLED
+        else:
+            status = SessionStatus.SCHEDULED
+        
         return Session(
             session_id=sid,
             type=stype,
             name=name,
-            start=start, # API returns ISO format which aligns with schema
-            end=end,
-            status=SessionStatus.SCHEDULED # Assume scheduled for now
+            start=start,  # ISO format from API
+            end=None,  # API doesn't provide end times
+            status=status
         )
