@@ -9,6 +9,8 @@ from dataclasses import dataclass
 import hashlib
 import time
 import httpx
+import asyncio
+import os
 from models.schema import Event, SeriesDescriptor, Source
 
 
@@ -37,6 +39,7 @@ class Connector(ABC):
         self._last_request_time: float = 0
         self.rate_limit_seconds: float = 1.0  # Default: 1 request per second
         self.max_retries: int = 3  # Default: 3 retry attempts
+        self.playwright_enabled: bool = os.getenv("PLAYWRIGHT_ENABLED", "false").lower() == "true"
     
     @property
     @abstractmethod
@@ -184,13 +187,21 @@ class Connector(ABC):
         raise httpx.HTTPError(f"Failed to fetch {url} after {self.max_retries} attempts")
 
     
-    def create_source(self, url: str, retrieved_at: Optional[datetime] = None) -> Source:
+    def create_source(
+        self, 
+        url: str, 
+        retrieved_at: Optional[datetime] = None,
+        extraction_method: Optional[str] = None,
+        discovered_endpoints: Optional[List[str]] = None,
+    ) -> Source:
         """
        Helper to create Source metadata.
         
         Args:
             url: Source URL
             retrieved_at: Retrieval timestamp (defaults to now)
+            extraction_method: How data was extracted ("http", "playwright_network", etc.)
+            discovered_endpoints: List of discovered API endpoints
             
         Returns:
             Source object
@@ -199,5 +210,110 @@ class Connector(ABC):
             url=url,
             provider_name=self.name,
             retrieved_at=retrieved_at or datetime.utcnow(),
-            raw_ref=None
+            raw_ref=None,
+            extraction_method=extraction_method or "http",
+            discovered_endpoints=discovered_endpoints or [],
         )
+    
+    # ------------------------------------------------------------------
+    # Playwright Integration (optional, requires PLAYWRIGHT_ENABLED=true)
+    # ------------------------------------------------------------------
+    
+    async def _playwright_get(
+        self,
+        url: str,
+        wait_for: Optional[str] = None,
+        timeout: float = 30.0,
+    ):
+        """
+        Fetch a page using Playwright browser automation.
+        
+        Args:
+            url: URL to fetch
+            wait_for: CSS selector to wait for
+            timeout: Request timeout in seconds
+            
+        Returns:
+            RenderedPage object from browser_client
+            
+        Raises:
+            RuntimeError: If Playwright not enabled
+            ImportError: If playwright not installed
+        """
+        if not self.playwright_enabled:
+            raise RuntimeError(
+                "Playwright is disabled. Set PLAYWRIGHT_ENABLED=true to enable."
+            )
+        
+        try:
+            from browser_client import fetch_rendered_with_retry
+        except ImportError:
+            raise ImportError(
+                "playwright not installed. Run: pip install 'playwright>=1.40.0' && playwright install chromium"
+            )
+        
+        return await fetch_rendered_with_retry(
+            url,
+            wait_for=wait_for,
+            timeout_ms=int(timeout * 1000),
+        )
+    
+    async def _capture_endpoints(
+        self,
+        url: str,
+        patterns: Optional[List[str]] = None,
+    ):
+        """
+        Capture network responses that match patterns (e.g., JSON endpoints).
+        
+        Args:
+            url: Page URL to load
+            patterns: URL patterns to capture (e.g., ["schedule", "session"])
+            
+        Returns:
+            List of CapturedResponse objects
+            
+        Raises:
+            RuntimeError: If Playwright not enabled
+        """
+        if not self.playwright_enabled:
+            raise RuntimeError(
+                "Playwright is disabled. Set PLAYWRIGHT_ENABLED=true to enable."
+            )
+        
+        try:
+            from browser_client import capture_json_responses, discover_schedule_endpoints
+        except ImportError:
+            raise ImportError(
+                "playwright not installed. Run: pip install 'playwright>=1.40.0' && playwright install chromium"
+            )
+        
+        responses = await capture_json_responses(url, patterns=patterns)
+        
+        # Rank by likelihood of being schedule data
+        scored = discover_schedule_endpoints(responses)
+        
+        # Return top matches
+        return [resp for resp, score in scored if score > 2.0]
+    
+    def _run_async(self, coro):
+        """
+        Run async coroutine in sync context.
+        
+        Helper for connectors that need to call async _playwright_get or _capture_endpoints
+        from synchronous fetch_season methods.
+        """
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        if loop.is_running():
+            # If already in async context, raise error
+            raise RuntimeError(
+                "Cannot use _run_async from within async context. "
+                "Use await directly instead."
+            )
+        
+        return loop.run_until_complete(coro)

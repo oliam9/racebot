@@ -162,6 +162,83 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { display: none; }
     .stTabs [data-baseweb="tab-border"] { display: none; }
     .stTabs [data-baseweb="tab-highlight"] { display: none; }
+
+    /* ── Polished Event Card Content ──────────────── */
+    .event-custom-header {
+        margin-bottom: 1rem;
+    }
+    .event-name {
+        font-size: 1.35rem;
+        font-weight: 700;
+        color: #FFFFFF;
+        margin: 0 0 0.5rem 0;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+    }
+    .event-badge {
+        display: inline-block;
+        background: rgba(255, 107, 53, 0.12);
+        color: #FF8F5E;
+        font-size: 0.7rem;
+        font-weight: 700;
+        padding: 4px 8px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 0.5rem;
+        border: 1px solid rgba(255, 107, 53, 0.15);
+    }
+    
+    /* Grid layout for event details */
+    .event-meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px 24px;
+        margin-bottom: 0.5rem;
+        background: rgba(255,255,255,0.02);
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.04);
+    }
+    
+    .meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    
+    .meta-label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        color: rgba(255,255,255,0.4);
+    }
+    
+    .meta-value {
+        font-size: 0.95rem;
+        color: rgba(255,255,255,0.9);
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    
+    .meta-icon {
+        opacity: 0.5;
+        font-size: 1em;
+    }
+
+    /* Code styling adjustment */
+    .meta-value code {
+        background: rgba(0,0,0,0.3);
+        border: 1px solid rgba(255,255,255,0.1);
+        color: #FF8F5E;
+        font-family: 'SF Mono', 'Roboto Mono', monospace;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.85em;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -199,8 +276,8 @@ def render_sidebar_stats(series):
             road_courses.add(e.venue.circuit)
 
     if series.events:
-        first = series.events[0].start_date.strftime("%b %-d")
-        last = series.events[-1].end_date.strftime("%b %-d")
+        first = series.events[0].start_date.strftime("%b %d").replace(" 0", " ")
+        last = series.events[-1].end_date.strftime("%b %d").replace(" 0", " ")
         span = f"{first} → {last}"
     else:
         span = "—"

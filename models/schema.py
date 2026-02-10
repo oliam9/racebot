@@ -15,6 +15,14 @@ class Source(BaseModel):
     provider_name: str = Field(..., description="Provider/connector name")
     retrieved_at: datetime = Field(..., description="Timestamp when data was retrieved")
     raw_ref: Optional[str] = Field(None, description="Reference to raw data (optional)")
+    extraction_method: Optional[str] = Field(
+        None, 
+        description="Extraction method: 'http', 'playwright_network', 'playwright_dom'"
+    )
+    discovered_endpoints: List[str] = Field(
+        default_factory=list,
+        description="API endpoints discovered during extraction"
+    )
     
     class Config:
         json_schema_extra = {
@@ -22,7 +30,9 @@ class Source(BaseModel):
                 "url": "https://www.indycar.com/schedule",
                 "provider_name": "IndyCar Official",
                 "retrieved_at": "2024-03-15T10:30:00Z",
-                "raw_ref": "indycar_2024_schedule.ics"
+                "raw_ref": "indycar_2024_schedule.ics",
+                "extraction_method": "http",
+                "discovered_endpoints": []
             }
         }
 

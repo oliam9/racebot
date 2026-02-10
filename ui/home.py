@@ -75,36 +75,60 @@ def render_events(series):
     """Display events as cards with sessions inside."""
     for idx, event in enumerate(series.events, start=1):
         with st.container(border=True):
-            st.caption(f"RACE WEEK {idx}")
 
             # Date range logic
             if event.start_date == event.end_date:
-                date_str = event.start_date.strftime("%b %-d, %Y")
+                date_str = event.start_date.strftime("%b %d, %Y").replace(" 0", " ")
             else:
                 if event.start_date.month == event.end_date.month:
                     date_str = (
-                        f"{event.start_date.strftime('%b %-d')}"
-                        f" – {event.end_date.strftime('%-d, %Y')}"
+                        f"{event.start_date.strftime('%b %d').replace(' 0', ' ')}"
+                        f" – {event.end_date.strftime('%d, %Y').lstrip('0')}"
                     )
                 else:
                     date_str = (
-                        f"{event.start_date.strftime('%b %-d')}"
-                        f" – {event.end_date.strftime('%b %-d, %Y')}"
+                        f"{event.start_date.strftime('%b %d').replace(' 0', ' ')}"
+                        f" – {event.end_date.strftime('%b %d, %Y').replace(' 0', ' ')}"
                     )
 
             # Venue logic
             venue_parts = []
-            if event.venue.circuit:
-                venue_parts.append(event.venue.circuit)
             if event.venue.city:
                 venue_parts.append(event.venue.city)
             if event.venue.region:
                 venue_parts.append(event.venue.region)
-            venue_str = ", ".join(venue_parts) if venue_parts else ""
+            location_str = ", ".join(venue_parts) if venue_parts else "—"
+            
+            circuit_str = event.venue.circuit or "—"
+            timezone_str = f"<code>{event.venue.timezone}</code>"
 
-            # Event Header
-            st.markdown(f"#### {event.name}")
-            st.markdown(f"**{date_str}** · _{venue_str}_")
+            # Custom HTML Layout
+            html = f"""
+            <div class="event-custom-header">
+                <span class="event-badge">Race Week {idx}</span>
+                <div class="event-name">{event.name}</div>
+                <div class="event-meta-grid">
+                    <div class="meta-item">
+                        <span class="meta-label">Dates</span>
+                        <span class="meta-value">📅 {date_str}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Circuit</span>
+                        <span class="meta-value">🏁 {circuit_str}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Location</span>
+                        <span class="meta-value">📍 {location_str}</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Timezone</span>
+                        <span class="meta-value">🕒 {timezone_str}</span>
+                    </div>
+                </div>
+            </div>
+            """
+            
+            st.markdown(html, unsafe_allow_html=True)
 
             # Sessions expander
             with st.expander("View Sessions", expanded=False):
@@ -141,7 +165,7 @@ def render_sessions(event):
             if s.start:
                 try:
                     dt = datetime.fromisoformat(s.start.replace("Z", "+00:00"))
-                    time_str = dt.strftime("%-I:%M %p")
+                    time_str = dt.strftime("%I:%M %p").lstrip('0')
                 except ValueError:
                     time_str = "TBC"
             else:
