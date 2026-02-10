@@ -39,7 +39,7 @@ class Connector(ABC):
         self._last_request_time: float = 0
         self.rate_limit_seconds: float = 1.0  # Default: 1 request per second
         self.max_retries: int = 3  # Default: 3 retry attempts
-        self.playwright_enabled: bool = os.getenv("PLAYWRIGHT_ENABLED", "false").lower() == "true"
+        self.playwright_enabled: bool = os.getenv("PLAYWRIGHT_ENABLED", "true").lower() == "true"
     
     @property
     @abstractmethod
@@ -298,22 +298,50 @@ class Connector(ABC):
     
     def _run_async(self, coro):
         """
-        Run async coroutine in sync context.
+        Run async coroutine in sync context (with Streamlit compatibility).
         
         Helper for connectors that need to call async _playwright_get or _capture_endpoints
         from synchronous fetch_season methods.
+        
+        Uses threading to handle cases where an event loop is already running (e.g., Streamlit).
         """
+        import threading
+        
         try:
-            loop = asyncio.get_event_loop()
+            # Try to get the running loop (works in Streamlit)
+            loop = asyncio.get_running_loop()
+            
+            # If we're already in an event loop (Streamlit), run in thread
+            result = None
+            exception = None
+            done_event = threading.Event()
+            
+            def run_in_thread():
+                nonlocal result, exception
+                try:
+                    # Create new event loop for this thread
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    result = new_loop.run_until_complete(coro)
+                    new_loop.close()
+                except Exception as e:
+                    exception = e
+                finally:
+                    done_event.set()
+            
+            thread = threading.Thread(target=run_in_thread)
+            thread.start()
+            thread.join()
+            
+            if exception:
+                raise exception
+            return result
+            
         except RuntimeError:
+            # No event loop running — create new one
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        
-        if loop.is_running():
-            # If already in async context, raise error
-            raise RuntimeError(
-                "Cannot use _run_async from within async context. "
-                "Use await directly instead."
-            )
-        
-        return loop.run_until_complete(coro)
+            try:
+                return loop.run_until_complete(coro)
+            finally:
+                loop.close()

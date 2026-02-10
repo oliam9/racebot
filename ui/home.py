@@ -5,10 +5,12 @@ Home page — fetch data and display events with sessions inline.
 import streamlit as st
 import json
 from datetime import datetime
-from connectors import list_available_series, get_connector
+from typing import Optional
+from connectors import list_available_series, get_connector, get_registry
 from models.schema import Series
 from validators import DataValidator
 from ui.export import render_download_button
+from ui.db_export import render_db_export_section
 
 
 def render():
@@ -30,6 +32,7 @@ def render_content():
             f"{len(series.events)} events"
         )
         render_download_button(series)
+        render_db_export_section(series)
         st.divider()
         render_events(series)
     else:
@@ -45,6 +48,9 @@ def render_fetch_bar():
 
     series_options = {
         s.name: s.series_id for s in available_series
+    }
+    connector_map = {
+        s.series_id: s.connector_id for s in available_series
     }
 
     col1, col2, col3 = st.columns([3, 1.5, 1])
@@ -65,10 +71,31 @@ def render_fetch_bar():
             key="season_input",
             label_visibility="collapsed",
         )
+
+    # URL input - now available for ALL series
+    # Optional: if provided, will use generic web scraping
+    target_url = st.text_input(
+        "🌐 Schedule page URL (optional)",
+        placeholder="Paste a custom schedule/calendar page URL here…",
+        key="target_url_input",
+        help="Optional: Paste the URL of any official schedule page. If provided, will use generic web scraping for this series.",
+    )
+    
+    # Get series info for validation
+    series_id = series_options[selected_name]
+    connector_id = connector_map[series_id]
+    registry = get_registry()
+    connector = registry.get(connector_id)
+    needs_url = getattr(connector, "needs_url", False)
+
     with col3:
         if st.button("🚀 Fetch", type="primary", use_container_width=True):
-            series_id = series_options[selected_name]
-            fetch_data(series_id, season)
+            # Only require URL if connector specifically needs it
+            if needs_url and not target_url:
+                st.error("This series requires a schedule page URL. Please paste it above.")
+                return
+            # Otherwise, URL is optional - will use it if provided
+            fetch_data(series_id, season, target_url=target_url if target_url else None)
 
 
 def render_events(series):
@@ -191,9 +218,9 @@ def render_sessions(event):
 # ------------------------------------------------------------------
 
 
-def fetch_data(series_id: str, season: int):
+def fetch_data(series_id: str, season: int, target_url: Optional[str] = None):
     """Fetch data for a series/season and store in session state."""
-    with st.spinner("Fetching schedule from IndyCar.com…"):
+    with st.spinner("Fetching schedule data…"):
         try:
             connector = None
             for series_desc in list_available_series():
@@ -204,6 +231,10 @@ def fetch_data(series_id: str, season: int):
             if not connector:
                 st.error(f"No connector found for series: {series_id}")
                 return
+
+            # Set target URL for generic connectors
+            if target_url and hasattr(connector, "set_target_url"):
+                connector.set_target_url(target_url)
 
             raw_payload = connector.fetch_season(series_id, season)
             events = connector.extract(raw_payload)

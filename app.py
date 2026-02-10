@@ -343,19 +343,117 @@ def render_api_status():
 
 
 def render_upload_tab():
-    """Upload Data section — JSON file import."""
-    st.caption(
-        "Import previously exported schedule data from a JSON file."
-    )
-
+    """Upload Data section — supports JSON, PDF, DOCX, and TXT files."""
+    st.markdown("### 📤 Upload Schedule Data")
+    
+    st.markdown("""
+    Upload schedule data in various formats:
+    - **JSON**: Previously exported schedule data
+    - **PDF/Word/Text**: Documents containing schedule information (uses AI extraction)
+    """)
+    
+    # File size limit (5MB)
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes
+    
     uploaded_file = st.file_uploader(
-        "📤 Drop a JSON file here",
-        type=["json"],
-        key="json_uploader",
-        label_visibility="visible",
+        "Choose a file",
+        type=["json", "pdf", "docx", "doc", "txt"],
+        key="multi_format_uploader",
+        help="Upload JSON, PDF, Word, or text file (max 5MB)",
     )
+    
     if uploaded_file is not None:
-        home.handle_upload(uploaded_file)
+        # Check file size
+        file_size = len(uploaded_file.getvalue())
+        if file_size > MAX_FILE_SIZE:
+            st.error(f"File too large ({file_size / 1024 / 1024:.1f}MB). Maximum size is 5MB.")
+            return
+        
+        file_ext = uploaded_file.name.lower().split('.')[-1]
+        
+        # JSON files use existing handler
+        if file_ext == 'json':
+            home.handle_upload(uploaded_file)
+        else:
+            # Document files use AI extraction
+            handle_document_upload(uploaded_file)
+
+
+def handle_document_upload(uploaded_file):
+    """Handle PDF, DOCX, and TXT uploads with AI extraction."""
+    try:
+        from parsers import DocumentParser
+        from ai import ScheduleExtractor
+        
+        with st.spinner("📄 Extracting text from document..."):
+            # Parse document
+            file_bytes = uploaded_file.getvalue()
+            parser = DocumentParser.get_parser(uploaded_file.name)
+            document_text = parser.extract_text(file_bytes, uploaded_file.name)
+        
+        st.success(f"✅ Extracted {len(document_text)} characters from document")
+        
+        # Show text preview in expander
+        with st.expander("📝 View extracted text"):
+            st.text_area(
+                "Document content",
+                document_text[:2000] + ("..." if len(document_text) > 2000 else ""),
+                height=200,
+                disabled=True,
+            )
+        
+        # Extract schedule data using AI
+        with st.spinner("🤖 Analyzing document with AI (this may take a moment)..."):
+            extractor = ScheduleExtractor()
+            result = extractor.extract_schedule(document_text, uploaded_file.name)
+            validated = extractor.validate_extracted_data(result)
+        
+        series = validated["series"]
+        validation_result = validated["validation"]
+        
+        # Show preview of extracted data
+        st.markdown("### 🎯 Extracted Schedule Data")
+        st.markdown(
+            f"**Series:** {series.name} · **Season:** {series.season} · "
+            f"**Events:** {len(series.events)}"
+        )
+        
+        # Show validation summary
+        if validation_result.is_valid:
+            st.success("✅ Data validation passed")
+        else:
+            st.warning(f"⚠️ {len(validation_result.errors)} validation warnings")
+        
+        # Show events preview
+        with st.expander(f"Preview {len(series.events)} events"):
+            for event in series.events[:5]:
+                st.markdown(
+                    f"**{event.name}** — {event.start_date.strftime('%b %d, %Y')} · "
+                    f"{event.venue.country}"
+                )
+            if len(series.events) > 5:
+                st.caption(f"... and {len(series.events) - 5} more events")
+        
+        # Confirmation button
+        if st.button("✅ Confirm & Load Data", type="primary", use_container_width=True):
+            st.session_state.series = series
+            st.session_state.original_series = series.model_copy(deep=True)
+            st.session_state.validation_result = validation_result
+            st.success("🎉 Schedule data loaded successfully!")
+            st.rerun()
+    
+    except ImportError as e:
+        st.error(f"❌ Missing dependency: {str(e)}")
+        st.info("Run: `pip install -r requirements.txt` to install required packages")
+    except ValueError as e:
+        st.error(f"❌ Extraction failed: {str(e)}")
+        if "GEMINI_API_KEY" in str(e):
+            st.info("💡 Add GEMINI_API_KEY to your .env file to use AI extraction")
+    except Exception as e:
+        st.error(f"❌ Unexpected error: {str(e)}")
+        import traceback
+        with st.expander("🐛 View error details"):
+            st.code(traceback.format_exc())
 
 
 # Navigation items

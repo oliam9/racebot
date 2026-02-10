@@ -10,9 +10,25 @@ from .registry import (
     list_available_series,
 )
 from .indycar import IndyCarConnector
+from .generic import GenericWebConnector
+from .motogp import MotoGPConnector
+from models.enums import SeriesCategory
 
 # Auto-register all connectors
 register_connector(IndyCarConnector())
+register_connector(MotoGPConnector())
+
+# Register generic connector with known series that use URL-based scraping
+register_connector(
+    GenericWebConnector(
+        series_configs={
+            "dtm": {
+                "name": "DTM",
+                "category": SeriesCategory.GT,
+            },
+        }
+    )
+)
 
 __all__ = [
     "Connector",
@@ -22,4 +38,6 @@ __all__ = [
     "get_connector",
     "list_available_series",
     "IndyCarConnector",
+    "GenericWebConnector",
+    "MotoGPConnector",
 ]
