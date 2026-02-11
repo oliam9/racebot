@@ -128,10 +128,10 @@ class BrowserPool:
     Manages a single browser instance with context pooling.
     
     Thread-safe singleton pattern for resource efficiency.
+    Handles event loop changes by reinitializing when necessary.
     """
     
-    _instance: Optional[BrowserPool] = None
-    _lock = asyncio.Lock()
+    _instances: Dict[asyncio.AbstractEventLoop, 'BrowserPool'] = {}
     
     def __init__(self, config: BrowserConfig):
         self.config = config
@@ -142,14 +142,28 @@ class BrowserPool:
         self._rate_limiters: Dict[str, float] = {}  # domain -> last_request_time
         
     @classmethod
-    async def get_instance(cls, config: Optional[BrowserConfig] = None) -> BrowserPool:
-        """Get or create singleton instance."""
-        async with cls._lock:
-            if cls._instance is None:
-                cfg = config or BrowserConfig.from_env()
-                cls._instance = BrowserPool(cfg)
-                await cls._instance._initialize()
-            return cls._instance
+    async def get_instance(cls, config: Optional[BrowserConfig] = None) -> 'BrowserPool':
+        """Get or create singleton instance for the current event loop."""
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            raise RuntimeError("BrowserPool must be used within a running event loop")
+        
+        # Clean up closed loops from registry
+        # Create a list of keys to remove to avoid runtime error during iteration
+        for loop in list(cls._instances.keys()):
+            if loop.is_closed():
+                # We can't await close() here because the loop is closed
+                # Just remove from registry
+                cls._instances.pop(loop, None)
+        
+        if current_loop not in cls._instances:
+            cfg = config or BrowserConfig.from_env()
+            instance = BrowserPool(cfg)
+            await instance._initialize()
+            cls._instances[current_loop] = instance
+        
+        return cls._instances[current_loop]
     
     async def _initialize(self):
         """Initialize browser instance."""
@@ -173,13 +187,39 @@ class BrowserPool:
     async def close(self):
         """Close browser and cleanup."""
         for ctx in self._contexts:
-            await ctx.close()
+            try:
+                await ctx.close()
+            except Exception:
+                pass
         self._contexts.clear()
         
         if self._browser:
-            await self._browser.close()
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
         if self._playwright:
-            await self._playwright.stop()
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
+    
+    @classmethod
+    async def close_all(cls):
+        """Close all browser instances in all loops (that are still running)."""
+        # This is tricky because we can't easily await things in other loops.
+        # Ideally, this is called when the application shuts down.
+        # We will try to close the instance for the CURRENT loop.
+        try:
+            current_loop = asyncio.get_running_loop()
+            if current_loop in cls._instances:
+                await cls._instances[current_loop].close()
+                del cls._instances[current_loop]
+        except RuntimeError:
+            pass
+            
+        # For other loops, we can't do much if we are not in them.
+        # They should rely on their own cleanup or garbage collection.
     
     @asynccontextmanager
     async def get_page(self):
@@ -569,6 +609,4 @@ def discover_schedule_endpoints(
 
 async def cleanup_browser():
     """Close the global browser instance."""
-    if BrowserPool._instance:
-        await BrowserPool._instance.close()
-        BrowserPool._instance = None
+    await BrowserPool.close_all()
