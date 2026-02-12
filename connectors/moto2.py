@@ -1,7 +1,7 @@
 """
 Moto2 Connector using official PulseLive API.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import httpx
 import pytz
@@ -284,11 +284,32 @@ class Moto2Connector(Connector):
         else:
             status = SessionStatus.SCHEDULED
         
+        # Calculate end time based on standardized durations
+        durations = {
+            "RAC": 45,
+            "Q": 15,
+            "PR": 40,
+            "FP": 40,
+            "WUP": 10,
+        }
+        
+        # Default duration
+        duration_mins = durations.get(session_type_str, 30)
+            
+        end = "TBC"
+        if start:
+            try:
+                start_dt = parser.isoparse(start)
+                end_dt = start_dt + timedelta(minutes=duration_mins)
+                end = end_dt.isoformat()
+            except Exception:
+                pass
+
         return Session(
             session_id=sid,
             type=stype,
             name=name,
             start=start,  # ISO format from API
-            end=None,  # API doesn't provide end times
+            end=end,
             status=status
         )

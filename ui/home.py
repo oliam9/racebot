@@ -170,20 +170,31 @@ def render_sessions(event):
 
         rows = []
         for s in day_sessions:
-            # Format time
-            if s.start:
+            # Format start time
+            if s.start and s.start != "TBC":
                 try:
                     dt = datetime.fromisoformat(s.start.replace("Z", "+00:00"))
-                    time_str = dt.strftime("%I:%M %p").lstrip('0')
+                    start_time = dt.strftime("%I:%M %p").lstrip('0')
                 except ValueError:
-                    time_str = "TBC"
+                    start_time = "TBC"
             else:
-                time_str = "TBC"
+                start_time = "TBC"
+
+            # Format end time
+            if s.end and s.end != "TBC":
+                try:
+                    dt = datetime.fromisoformat(s.end.replace("Z", "+00:00"))
+                    end_time = dt.strftime("%I:%M %p").lstrip('0')
+                except ValueError:
+                    end_time = "TBC"
+            else:
+                end_time = "TBC"
 
             rows.append(
                 {
                     "Session": s.name,
-                    "Time": time_str,
+                    "Start Time": start_time,
+                    "End Time": end_time,
                     "Type": s.type.value.title(),
                     "Status": s.status.value if s.status.value != "TBD" else "TBC",
                 }

@@ -15,6 +15,7 @@ from typing import Dict, List, Any, Optional
 
 from models.schema import Series, Event, Session, Venue
 from models.enums import SessionType, SeriesCategory
+from database.supabase_client import get_supabase_client
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +249,7 @@ def render_db_export_section(series: Series):
     """Render the DB export controls and download button."""
     with st.expander("🗄️ Export for Database", expanded=False):
         st.caption(
-            "Generate JSON matching the Supabase table format. "
+            "Push data directly to Supabase or generate JSON matching the table format. "
             "Paste the championship UUID from your database."
         )
 
@@ -259,41 +260,88 @@ def render_db_export_section(series: Series):
             help="The UUID of the championship in your Supabase championships table.",
         )
 
-        if st.button("⬇️ Generate DB JSON", type="secondary", key="db_export_btn"):
-            if not championship_id or not championship_id.strip():
-                st.error("Please paste a championship UUID first.")
-                return
+        col1, col2 = st.columns(2)
 
-            # Validate UUID format
-            try:
-                uuid.UUID(championship_id.strip())
-            except ValueError:
-                st.error("Invalid UUID format. Please paste a valid UUID.")
-                return
+        with col1:
+            if st.button("🚀 Push to Supabase", type="primary", key="db_push_btn", use_container_width=True):
+                if not championship_id or not championship_id.strip():
+                    st.error("Please paste a championship UUID first.")
+                else:
+                    push_to_supabase(series, championship_id.strip())
 
-            champ_id = championship_id.strip()
-            export_data = generate_db_export(series, champ_id)
+        with col2:
+            if st.button("⬇️ Generate DB JSON", type="secondary", key="db_export_btn", use_container_width=True):
+                if not championship_id or not championship_id.strip():
+                    st.error("Please paste a championship UUID first.")
+                else:
+                    # Validate UUID format
+                    try:
+                        uuid.UUID(championship_id.strip())
+                    except ValueError:
+                        st.error("Invalid UUID format. Please paste a valid UUID.")
+                        return
 
-            json_str = json.dumps(export_data, indent=2, default=str)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"db_{series.series_id}_{series.season}_{timestamp}.json"
+                    champ_id = championship_id.strip()
+                    export_data = generate_db_export(series, champ_id)
 
-            st.download_button(
-                label="📥 Download DB JSON",
-                data=json_str,
-                file_name=filename,
-                mime="application/json",
-                key="db_export_download",
-            )
+                    json_str = json.dumps(export_data, indent=2, default=str)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"db_{series.series_id}_{series.season}_{timestamp}.json"
 
-            # Show summary
-            st.success(
-                f"**Ready!** "
-                f"{len(export_data['circuits'])} circuits · "
-                f"{len(export_data['championship_events'])} events · "
-                f"{len(export_data['championship_event_sessions'])} sessions"
-            )
+                    st.download_button(
+                        label="📥 Download JSON",
+                        data=json_str,
+                        file_name=filename,
+                        mime="application/json",
+                        key="db_export_download",
+                        use_container_width=True,
+                    )
 
-            # Preview
-            with st.expander("Preview JSON", expanded=False):
-                st.json(export_data)
+                    # Show summary
+                    st.success(
+                        f"**Ready!** "
+                        f"{len(export_data['circuits'])} circuits · "
+                        f"{len(export_data['championship_events'])} events · "
+                        f"{len(export_data['championship_event_sessions'])} sessions"
+                    )
+
+                    # Preview
+                    with st.expander("Preview JSON", expanded=False):
+                        st.json(export_data)
+
+def push_to_supabase(series: Series, championship_id: str):
+    """Helper to push data to Supabase from the UI."""
+    client = get_supabase_client()
+    if not client:
+        st.error("❌ Supabase client not initialized. Ensure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are in .env")
+        return
+
+    try:
+        with st.spinner("Pushing to Supabase..."):
+            export_data = generate_db_export(series, championship_id)
+
+            # 1. Circuits
+            for circuit in export_data['circuits']:
+                client.table("circuits").upsert(circuit).execute()
+
+            # 2. Championship
+            for champ in export_data['championships']:
+                client.table("championships").upsert(champ).execute()
+
+            # 3. Events
+            for event in export_data['championship_events']:
+                client.table("championship_events").upsert(event).execute()
+
+            # 4. Sessions
+            if export_data['championship_event_sessions']:
+                client.table("championship_event_sessions").upsert(export_data['championship_event_sessions']).execute()
+
+        st.success(
+            f"✅ **Success!** Pushed "
+            f"{len(export_data['championship_events'])} events and "
+            f"{len(export_data['championship_event_sessions'])} sessions."
+        )
+    except Exception as e:
+        st.error(f"❌ Supabase Error: {str(e)}")
+        with st.expander("Show full error"):
+            st.code(str(e))

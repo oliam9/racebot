@@ -515,7 +515,7 @@ class DTMConnector(Connector):
                     type=session_type,
                     name=session_name,
                     start=None,
-                    end=None,
+                    end="TBC",
                     status=SessionStatus.SCHEDULED
                 )
             )

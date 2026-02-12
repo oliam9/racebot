@@ -351,7 +351,7 @@ class IndyCarConnector(Connector):
             type=session_type,
             name=session_name,
             start=start_iso,
-            end=end_iso,
+            end="TBC",
             status=status,
         )
 

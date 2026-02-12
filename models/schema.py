@@ -89,8 +89,8 @@ class Session(BaseModel):
     @field_validator('start', 'end')
     @classmethod
     def validate_iso_datetime(cls, v: Optional[str]) -> Optional[str]:
-        """Validate ISO-8601 datetime with offset."""
-        if v is None:
+        """Validate ISO-8601 datetime with offset, or 'TBC'."""
+        if v is None or v == "TBC":
             return v
         try:
             # Try parsing to ensure it's valid ISO-8601
@@ -102,7 +102,7 @@ class Session(BaseModel):
     @model_validator(mode='after')
     def validate_times(self) -> 'Session':
         """Validate end is after start."""
-        if self.start and self.end:
+        if self.start and self.end and self.start != "TBC" and self.end != "TBC":
             try:
                 start_dt = datetime.fromisoformat(self.start.replace('Z', '+00:00'))
                 end_dt = datetime.fromisoformat(self.end.replace('Z', '+00:00'))

@@ -221,7 +221,7 @@ class F1Connector(Connector):
             type=stype,
             name=session_name,
             start=start,
-            end=end,
+            end=end or "TBC",
             status=SessionStatus.SCHEDULED
         )
 

@@ -386,7 +386,7 @@ class F3Connector(Connector):
                     type=s_type,
                     name=s_name,
                     start=start_time,
-                    end=end_time,
+                    end=end_time or "TBC",
                     status=status
                 ))
 
@@ -432,7 +432,7 @@ class F3Connector(Connector):
                     type=session_type,
                     name=session_name,
                     start=None,
-                    end=None,
+                    end="TBC",
                     status=SessionStatus.SCHEDULED
                 )
             )
