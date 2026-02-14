@@ -6,14 +6,20 @@ import os
 import streamlit as st
 from ui import home
 from ui import search_fallback
+from ui import home
+from ui import search_fallback
+from ui import scraper
+from ui import view  # New import
 from models.enums import SessionType
 
-# Load .env file if python-dotenv is available
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(override=True)
 except ImportError:
     pass
+
+from utils import auth  # Supabase Auth
+
 
 
 # Page configuration
@@ -458,7 +464,9 @@ def handle_document_upload(uploaded_file):
 
 # Navigation items
 NAV_ITEMS = [
-    {"key": "connectors",  "icon": "⚡", "label": "Connectors"},
+    {"key": "scraper",     "icon": "🕷️", "label": "Scraper"},
+    {"key": "view",        "icon": "👀", "label": "View Data"},
+    {"key": "connectors",  "icon": "⚡", "label": "Test Connectors"},
     {"key": "search",      "icon": "🌐", "label": "Search Discovery"},
     {"key": "upload",      "icon": "📂", "label": "Upload Data"},
 ]
@@ -467,12 +475,21 @@ NAV_ITEMS = [
 def main():
     """Main application entrypoint."""
 
+    # Authentication Check
+    if not auth.check_auth():
+        st.stop()
+
     # ── Sidebar ──────────────────────────────────────────────
     with st.sidebar:
         st.markdown(
             '<p class="sidebar-brand">🏁 MotorsportBot</p>',
             unsafe_allow_html=True,
         )
+
+        # Logout button (only if login is required)
+        if auth.is_login_required():
+            if st.button("Log Out", use_container_width=True):
+                auth.logout()
 
         # Stats when data is loaded
         if "series" in st.session_state and st.session_state.series:
@@ -504,8 +521,12 @@ def main():
     st.markdown("")  # spacer
 
     # ── Content ──────────────────────────────────────────────
-    if active == "connectors":
-        home.render_content()
+    if active == "scraper":
+        scraper.render()
+    elif active == "view":
+        view.render()
+    elif active == "connectors":
+        home.render()
     elif active == "search":
         search_fallback.render()
     elif active == "upload":
