@@ -20,6 +20,12 @@ from .worldrx import WorldRXConnector
 from .worldsbk import WorldSBKConnector
 from .moto2 import Moto2Connector
 from .moto3 import Moto3Connector
+from .nascar import NASCARConnector
+from .sro import SROConnector
+from .endurance import EnduranceConnector
+from .rally import RallyConnector
+from .touring import TouringConnector
+from .misc_racing import MiscRacingConnector
 from models.enums import SeriesCategory
 
 # Auto-register all connectors
@@ -33,6 +39,12 @@ register_connector(F2Connector())
 register_connector(F3Connector())
 register_connector(WorldRXConnector())
 register_connector(WorldSBKConnector())
+register_connector(NASCARConnector())
+register_connector(SROConnector())
+register_connector(EnduranceConnector())
+register_connector(RallyConnector())
+register_connector(TouringConnector())
+register_connector(MiscRacingConnector())
 
 # Generic connector is available but not auto-registered
 # Users can manually register it for custom series
@@ -53,4 +65,10 @@ __all__ = [
     "F3Connector",
     "WorldRXConnector",
     "WorldSBKConnector",
+    "NASCARConnector",
+    "SROConnector",
+    "EnduranceConnector",
+    "RallyConnector",
+    "TouringConnector",
+    "MiscRacingConnector",
 ]

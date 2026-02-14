@@ -40,4 +40,5 @@ class SeriesCategory(str, Enum):
     TOURING = "TOURING"
     FORMULA = "FORMULA"
     SPORTCAR = "SPORTCAR"
+    STOCK = "STOCK"
     OTHER = "OTHER"

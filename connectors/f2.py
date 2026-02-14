@@ -309,7 +309,14 @@ class F2Connector(Connector):
         if not round_num:
             return None
             
-        name = f"Round {round_num}: {item.get('CircuitShortName', 'Unknown')}"
+        if not round_num:
+            return None
+            
+        # USER REQUEST: "name of event should be the exact what scrapper reads."
+        # Attempt to find the most direct name field.
+        # Common FIA keys: MeetingName, Name, Title.
+        name = item.get('MeetingName', item.get('Name', item.get('CircuitName', "Unknown Event")))
+        
         event_id = f"{series_id}_{season}_r{round_num}"
         
         # Dates
@@ -358,7 +365,9 @@ class F2Connector(Connector):
                     if "SR" in s_short or "SPRINT" in s_name.upper():
                         s_type = SessionType.SPRINT
                     elif "FR" in s_short or "FEATURE" in s_name.upper():
-                        s_type = SessionType.FEATURE
+                        # USER REQUEST: "feature race is race category"
+                        # DB Enum does not have FEATURE, use RACE
+                        s_type = SessionType.RACE
                     else:
                         s_type = SessionType.RACE
                 elif "PRACTICE" in s_code:
