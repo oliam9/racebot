@@ -47,9 +47,46 @@ def render():
     # Prepare Events Dataframe with Circuit Names
     df_events = st.session_state.draft_events.copy()
     
+    # Ensure all expected columns exist (dynamic AI connector may not produce them)
+    col_defaults = {
+        "circuit_id": None,
+        "temp_id": None,
+        "championship_id": None,
+        "round_number": 0,
+        "is_confirmed": True,
+        "name": "Unknown",
+        "metadata": None,
+    }
+    for col, default in col_defaults.items():
+        if col not in df_events.columns:
+            df_events[col] = default
+    
+    # Auto-assign temp_id if missing
+    if df_events["temp_id"].isnull().all():
+        df_events["temp_id"] = range(1, len(df_events) + 1)
+
     # If we have circuit_ids, try to map them to names for the dropdown
     if "circuit_name" not in df_events.columns:
         df_events["circuit_name"] = df_events["circuit_id"].map(circuit_id_to_name)
+
+    # --- Pre-sync: apply pending editor edits to resolve circuit_id ---
+    # When the user selects a circuit_name in the editor, Streamlit reruns.
+    # The editor widget state (keyed "editor_events") holds the user's edits.
+    # We read those edits and map circuit_name → circuit_id on the SOURCE 
+    # DataFrame BEFORE passing it to data_editor, so circuit_id shows
+    # the correct value immediately.
+    editor_state = st.session_state.get("editor_events")
+    if editor_state and isinstance(editor_state, dict):
+        edited_rows = editor_state.get("edited_rows", {})
+        for row_idx_str, changes in edited_rows.items():
+            row_idx = int(row_idx_str)
+            if row_idx < len(df_events) and "circuit_name" in changes:
+                new_name = changes["circuit_name"]
+                df_events.at[df_events.index[row_idx], "circuit_name"] = new_name
+                df_events.at[df_events.index[row_idx], "circuit_id"] = circuit_map.get(new_name)
+
+    # Save the pre-synced version back so it's consistent
+    st.session_state.draft_events = df_events
 
     # --- Events Editor ---
     st.markdown("### 📅 Events")
@@ -58,8 +95,7 @@ def render():
     event_column_config = {
         "championship_id": st.column_config.TextColumn(disabled=True),
         "temp_id": st.column_config.NumberColumn(disabled=True, help="Temporary ID for linking sessions"),
-        # Hide raw ID by omitting from column_order, but keep config just in case
-        "circuit_id": st.column_config.TextColumn(disabled=True), 
+        "circuit_id": st.column_config.TextColumn("Circuit ID", disabled=True), 
         "circuit_name": st.column_config.SelectboxColumn(
             "Circuit",
             options=circuit_options,
@@ -73,7 +109,6 @@ def render():
         "metadata": st.column_config.TextColumn() 
     }
     
-    # order columns to put circuit_name near start
     column_order = ["round_number", "circuit_name", "name", "start_date", "end_date", "is_confirmed", "circuit_id", "temp_id", "championship_id", "metadata"]
     
     edited_events = st.data_editor(
@@ -85,11 +120,8 @@ def render():
         key="editor_events"
     )
     
-    # --- Sync Circuit ID ---
-    # When user changes circuit_name, we must update circuit_id immediately for the UI state
-    # so that if they click "Stage", it has the right IDs.
+    # Map circuit_name → circuit_id on the editor output for downstream use
     if not edited_events.empty and "circuit_name" in edited_events.columns:
-        # Map names back to IDs using the map created earlier
         edited_events["circuit_id"] = edited_events["circuit_name"].map(circuit_map)
     
     # --- Sessions Editor ---
@@ -114,23 +146,12 @@ def render():
         key="editor_sessions"
     )
     
-    # --- Sync Circuit ID ---
-    # When user changes circuit_name, update circuit_id and rerun to reflect changes
-    # Use simpler logic: if map output differs from current column, update.
-    if not edited_events.empty and "circuit_name" in edited_events.columns:
-        # Calculate expected IDs
-        expected_ids = edited_events["circuit_name"].map(circuit_map)
-        
-        # We enforce the update on the session state
-        edited_events["circuit_id"] = expected_ids
-        
-        # Only rerun if the data actually changed from what is currently in session_state
-        # This prevents infinite loops if data_editor triggers rerun, we update, trigger rerun...
-        # We compare against st.session_state.draft_events which holds the "previous" stable state
-        
-        # For now, just save it. The "Stage" button logic remaps it anyway, so it's safe.
-        st.session_state.draft_events = edited_events
-        st.session_state.draft_sessions = edited_sessions
+    # --- Sync Circuit Names → IDs ---
+    # The data_editor manages its own widget state via `key`.
+    # We only need to map circuit_name → circuit_id when staging.
+    # Do NOT write back to st.session_state.draft_events here — that
+    # causes a rerun loop where the editor reinitialises and loses
+    # the user's selection (the "need to pick twice" bug).
 
     # --- Validation ---
     st.markdown("---")
@@ -142,23 +163,29 @@ def render():
     if edited_events.empty:
         errors.append("❌ No events to stage.")
     else:
-        # Check unique rounds
-        if edited_events["round_number"].duplicated().any():
-            dupes = edited_events.loc[edited_events["round_number"].duplicated(), "round_number"].tolist()
-            if any(d > 0 for d in dupes):
+        # Check unique rounds (skip if round numbers aren't assigned yet)
+        if "round_number" in edited_events.columns:
+            non_zero = edited_events[edited_events["round_number"] > 0]
+            if not non_zero.empty and non_zero["round_number"].duplicated().any():
+                dupes = non_zero.loc[non_zero["round_number"].duplicated(), "round_number"].tolist()
                 errors.append(f"⚠️ Duplicate round numbers detected: {dupes}")
         
         # Check required fields
         if edited_events["name"].isnull().any() or (edited_events["name"] == "").any():
             errors.append("❌ Missing event names.")
 
-        # Check for missing circuit IDs (unmapped)
+        # Check for missing circuit IDs
         if edited_events["circuit_id"].isnull().any():
-             errors.append("❌ Some events have no circuit selected.")
+            errors.append("❌ Some events have no circuit selected.")
 
     # Validate Sessions
-    valid_temp_ids = set(edited_events["temp_id"].unique())
-    orphans = edited_sessions[~edited_sessions["temp_event_id"].isin(valid_temp_ids)]
+    if "temp_id" in edited_events.columns:
+        valid_temp_ids = set(edited_events["temp_id"].dropna().unique())
+    else:
+        valid_temp_ids = set()
+    orphans = pd.DataFrame()
+    if "temp_event_id" in edited_sessions.columns and valid_temp_ids:
+        orphans = edited_sessions[~edited_sessions["temp_event_id"].isin(valid_temp_ids)]
     if not orphans.empty:
         errors.append(f"❌ {len(orphans)} sessions have invalid 'temp_event_id' (no matching event).")
 

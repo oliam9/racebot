@@ -317,72 +317,54 @@ pip install anthropic
 - Perfect for development and testing
 - Upgrade for higher RPM if needed
 
-## Next Steps
+## Connector To-Do List
 
-### Immediate
-1. ✅ Install anthropic package
-2. ✅ Get at least one API key
-3. ✅ Run test_ai_scraper_setup.py
-4. ✅ Test with a simple URL
+### ✅ Dedicated Connectors (working)
 
-### Future Enhancements
-- [ ] Multi-page pagination support
-- [ ] Automatic retry with alternate AI
-- [ ] Session detail page scraping
-- [ ] Result/standing extraction
-- [ ] Custom prompts per series
-- [ ] Local LLM support (Ollama)
-- [ ] Batch processing mode
+| # | Championship | Connector | Data Source |
+|---|-------------|-----------|-------------|
+| 1 | FIA Formula One | `f1_openf1` | OpenF1 API |
+| 2 | FIA Formula 2 | `f2_official` | fiaformula2.com (`__NEXT_DATA__`) |
+| 3 | FIA Formula 3 | `f3_official` | fiaformula3.com (`__NEXT_DATA__`) |
+| 4 | MotoGP | `motogp_official` | motogp.com API |
+| 5 | Moto2 | `moto2_official` | motogp.com API |
+| 6 | Moto3 | `moto3_official` | motogp.com API |
+| 7 | NTT IndyCar Series | `indycar_official` | indycar.com |
+| 8 | DTM | `dtm_official` | dtm.com |
+| 9 | FIA World Rallycross | `worldrx_official` | fiaworldrallycross.com |
+| 10 | FIM Superbike (WorldSBK) | `worldsbk_official` | worldsbk.com |
 
-## Files Changed
+### 🧪 To Test (dedicated connectors built, need validation)
 
-```
-✅ ui/home.py                    - Removed URL input
-✅ ui/search_fallback.py         - Added dual-mode interface
-✅ search/ai_scraper.py          - NEW: Complete AI scraper
-✅ .env.example                  - Added AI API keys
-✅ requirements.txt              - Added anthropic package
-✅ AI_SCRAPING_GUIDE.md          - NEW: Detailed documentation
-✅ test_ai_scraper_setup.py      - NEW: Setup verification
-✅ IMPLEMENTATION_SUMMARY.md     - NEW: This file
-```
+| # | Championship | Connector | Data Source | Notes |
+|---|-------------|-----------|-------------|-------|
+| 1 | ABB FIA Formula E | `formula_e_official` | PulseLive API | 17 events |
+| 2 | NASCAR Cup Series | `nascar_cup_official` | NASCAR CDN JSON | 40 events |
+| 3 | FIA WEC | `wec_official` | fiawec.com (Playwright) | DOM parsing |
+| 4 | FIA WRC | `wrc_official` | wrc.com (Playwright) | SPA |
+| 5 | IMSA WeatherTech | `imsa_official` | imsa.com (Playwright) | Cloudflare |
+| 6 | NASCAR Xfinity | `nascar_xfinity_official` | CDN JSON (series=2) | 33 events |
+| 7 | NASCAR Truck | `nascar_truck_official` | CDN JSON (series=3) | 25 events |
+| 8 | F1 Academy | `f1_academy_official` | `__NEXT_DATA__` | Same as F2/F3 |
+| 9 | Supercars (AU) | `supercars_official` | supercars.com (Playwright) | AU timezones |
+| 10 | BTCC | `btcc_official` | btcc.net (Playwright) | UK circuits |
+| 11 | Super Formula | `super_formula_official` | superformula.net (Playwright) | SSL workaround |
+| 12 | ELMS | `elms_official` | europeanlemansseries.com | Playwright |
+| 13 | Asian LMS | `asian_lms_official` | asianlemansseries.com | Playwright |
+| 14 | GTWC Europe | `gtwc_europe_official` | SRO platform | Shared base |
+| 15 | GTWC America | `gtwc_america_official` | SRO platform | Shared base |
+| 16 | GTWC Asia | `gtwc_asia_official` | SRO platform | Shared base |
+| 17 | IGTC | `igtc_official` | SRO platform | Shared base |
+| 18 | Super GT | `super_gt_official` | supergt.net | Japan |
+| 19 | Dakar Rally | `dakar_official` | dakar.com | Single event |
+| 20 | Extreme E | `extreme_e_official` | extreme-e.com | Legacy/ended |
+| 21 | WTCR/TCR | `wtcr_official` | tcr-series.com | 2 series IDs |
+| 22 | Stock Car Pro | `stock_car_br_official` | stockcar.com.br | PT months |
+| 23 | FIM Supersport | `fim_supersport_official` | worldsbk.com | Shared w/SBK |
+| 24 | Isle of Man TT | `iom_tt_official` | iomtt.com | Cloudflare |
+| 25 | AMA Supercross | `ama_supercross_official` | supercrosslive.com | US events |
 
-## Security & Privacy
+### ✅ All championships now have dedicated connectors!
 
-### API Keys
-- ✅ Stored in `.env` (gitignored)
-- ✅ Never logged or displayed
-- ✅ Environment variables only
-- ✅ No hardcoding
+> **35 dedicated connectors** + 6 generic fallbacks = **41 total connectors** covering **61 series**.
 
-### Scraping Behavior
-- ✅ Conservative rate limits (3/min)
-- ✅ Clear bot identification
-- ✅ Respects page load times
-- ✅ Caching to reduce requests
-
-### Data Handling
-- ✅ Public data only
-- ✅ Educational/personal use
-- ✅ No authentication bypass
-- ✅ Schema validation
-
-## Support Resources
-
-1. **Setup Guide**: `AI_SCRAPING_GUIDE.md`
-2. **Test Script**: `test_ai_scraper_setup.py`
-3. **API Docs**:
-   - Anthropic: https://docs.anthropic.com
-   - Gemini: https://ai.google.dev/docs
-
-## Conclusion
-
-✅ **Successfully implemented** AI-powered web scraping with:
-- Dual AI provider support (Anthropic Claude + Google Gemini)
-- Comprehensive safety features (rate limiting, caching)
-- Clean UI separation (Connectors vs Search Discovery)
-- Extensive documentation and testing tools
-
-The system is now ready for safe, respectful, and efficient web scraping of motorsport schedules from official championship websites.
-
-**Recommended next action**: Install anthropic package and test with a simple URL like IMSA schedule.

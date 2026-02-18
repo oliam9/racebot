@@ -5,11 +5,9 @@ Main Streamlit application — modern segmented navigation.
 import os
 import streamlit as st
 from ui import home
-from ui import search_fallback
-from ui import home
-from ui import search_fallback
 from ui import scraper
-from ui import view  # New import
+from ui import view
+from ui import ai_scraper
 from models.enums import SessionType
 
 try:
@@ -24,7 +22,7 @@ from utils import auth  # Supabase Auth
 
 # Page configuration
 st.set_page_config(
-    page_title="MotorsportBot",
+    page_title="RaceScraper",
     page_icon="🏁",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -465,9 +463,9 @@ def handle_document_upload(uploaded_file):
 # Navigation items
 NAV_ITEMS = [
     {"key": "scraper",     "icon": "🕷️", "label": "Scraper"},
+    {"key": "ai_scraper",  "icon": "🤖", "label": "AI Scraper"},
     {"key": "view",        "icon": "👀", "label": "View Data"},
     {"key": "connectors",  "icon": "⚡", "label": "Test Connectors"},
-    {"key": "search",      "icon": "🌐", "label": "Search Discovery"},
     {"key": "upload",      "icon": "📂", "label": "Upload Data"},
 ]
 
@@ -482,7 +480,7 @@ def main():
     # ── Sidebar ──────────────────────────────────────────────
     with st.sidebar:
         st.markdown(
-            '<p class="sidebar-brand">🏁 MotorsportBot</p>',
+            '<p class="sidebar-brand">🏁 RaceScraper</p>',
             unsafe_allow_html=True,
         )
 
@@ -500,7 +498,7 @@ def main():
 
     # ── Navigation ───────────────────────────────────────────
     if "active_nav" not in st.session_state:
-        st.session_state.active_nav = "connectors"
+        st.session_state.active_nav = "scraper"
 
     active = st.session_state.active_nav
 
@@ -523,12 +521,12 @@ def main():
     # ── Content ──────────────────────────────────────────────
     if active == "scraper":
         scraper.render()
+    elif active == "ai_scraper":
+        ai_scraper.render()
     elif active == "view":
         view.render()
     elif active == "connectors":
         home.render()
-    elif active == "search":
-        search_fallback.render()
     elif active == "upload":
         render_upload_tab()
 

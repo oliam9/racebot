@@ -15,7 +15,7 @@ from ui.db_export import render_db_export_section
 
 def render():
     """Render the full page (with title) — used when app runs standalone."""
-    st.title("🏁 MotorsportBot")
+    st.title("🏁 RaceScraper")
     render_content()
 
 
