@@ -399,7 +399,7 @@ class WorldSBKConnector(Connector):
                             timezone=timezone,
                             inferred_timezone=was_inferred
                         ),
-                        sessions=self._create_default_sessions(event_id, season),
+                        sessions=[], # self._create_default_sessions(event_id, season),
                         sources=[Source(
                             url=payload.url,
                             provider_name=self.name,

@@ -339,7 +339,7 @@ class DTMConnector(Connector):
                             timezone=timezone,
                             inferred_timezone=was_inferred
                         ),
-                        sessions=self._create_default_sessions(event_id, season),
+                        sessions=[], # self._create_default_sessions(event_id, season),
                         sources=[Source(
                             url=source_url,
                             provider_name=self.name,
@@ -405,7 +405,7 @@ class DTMConnector(Connector):
                             timezone="Europe/Berlin",
                             inferred_timezone=True
                         ),
-                        sessions=self._create_default_sessions(event_id, season),
+                        sessions=[], # self._create_default_sessions(event_id, season),
                         sources=[Source(
                             url=source_url,
                             provider_name=self.name,
@@ -474,7 +474,7 @@ class DTMConnector(Connector):
         )
         
         # Create sessions (DTM typically has practice, qualifying, races)
-        sessions = self._create_default_sessions(event_id, season)
+        sessions = [] # self._create_default_sessions(event_id, season)
         
         # Generate event_id
         round_num = item.get("round", item.get("roundNumber", 0))

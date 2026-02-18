@@ -3,83 +3,83 @@ Step 4: Publish to Production
 """
 
 import streamlit as st
+import pandas as pd
 from database.repository import Repository
 
 def render():
-    st.subheader("4. Publishing...")
+    st.subheader("4. Publish to Production")
     
-    repo = Repository()
-    
-    if "publish_result" not in st.session_state:
-        with st.spinner("Upserting data to production tables..."):
-            try:
-                # 1. Get staged data (or use what we have in memory for Draft->Prod logic)
-                # The data models in `st.session_state.staged_events` match `stg_` table columns.
-                # However, our repository `publish_events` expects list of dicts.
-                
-                if "staged_events" in st.session_state and not st.session_state.staged_events.empty:
-                    events_payload = st.session_state.staged_events.to_dict(orient="records")
-                    sessions_payload = st.session_state.staged_sessions.to_dict(orient="records")
-                else:
-                    # Fallback to draft if staging read failed
-                    events_payload = st.session_state.draft_events.to_dict(orient="records")
-                    sessions_payload = st.session_state.draft_sessions.to_dict(orient="records")
+    if "staged_events" not in st.session_state or "staged_sessions" not in st.session_state:
+        st.error("No staged data found. Please go back to staging.")
+        if st.button("⬅️ Back to Staging"):
+            st.session_state.scraper_step = "staging"
+            st.rerun()
+        return
 
-                # 2. Publish Events
-                # Returns map of (season, round) -> event_id
-                event_map = repo.publish_events(events_payload)
-                
-                # 3. Enhance sessions with parent event linkage
-                # We used `temp_id` in draft. We need to bridge `temp_id` -> `round_number` -> `event_id`
-                # Assuming `draft_events` preserved order or we can lookup by round.
-                
-                # Create a map: temp_id -> (season, round)
-                temp_id_map = {}
-                for evt in events_payload:
-                    t_id = evt.get("temp_id")
-                    if t_id:
-                        temp_id_map[t_id] = (evt["season"], evt["round_number"])
-                
-                # Augment sessions
-                ready_sessions = []
-                for sess in sessions_payload:
-                    temp_id = sess.get("temp_event_id")
-                    if temp_id in temp_id_map:
-                        _, round_num = temp_id_map[temp_id]
-                        sess["parent_round"] = round_num
-                        ready_sessions.append(sess)
-                
-                config_season = st.session_state.scraper_config["season"]
-                
-                # 4. Publish Sessions
-                s_ins, s_upd = repo.publish_sessions(ready_sessions, event_map, config_season)
-                
-                st.session_state.publish_result = {
-                    "events_processed": len(event_map),
-                    "sessions_inserted": s_ins,
-                    "sessions_updated": s_upd
-                }
-                
-            except Exception as e:
-                st.error(f"Publish failed: {e}")
-                import traceback
-                st.code(traceback.format_exc())
-                return
+    staged_events_df = st.session_state.staged_events
+    staged_sessions_df = st.session_state.staged_sessions
+    
+    config = st.session_state.get("scraper_config", {})
+    season = config.get("season")
+    
+    st.info(f"Ready to publish {len(staged_events_df)} events and {len(staged_sessions_df)} sessions to production.")
+    
+    with st.expander("Review Data to be Published"):
+        st.write("Events:", staged_events_df)
+        st.write("Sessions:", staged_sessions_df)
 
-    # Show Summary
-    res = st.session_state.publish_result
-    st.success("🎉 Publish Complete!")
-    
-    st.markdown(f"""
-    - **Events Upserted**: {res['events_processed']}
-    - **Sessions Inserted**: {res['sessions_inserted']}
-    - **Sessions Updated**: {res['sessions_updated']}
-    """)
-    
-    if st.button("Start New Import"):
-        # Clear all
-        for key in list(st.session_state.keys()):
-            if key.startswith("scraper_") or key in ["draft_events", "draft_sessions", "import_id", "staged_events", "staged_sessions", "publish_result"]:
-                del st.session_state[key]
-        st.session_state.scraper_step = "config"
-        st.rerun()
+    if st.button("🚀 Confirm & Publish", type="primary"):
+        repo = Repository()
+        
+        try:
+            with st.spinner("Upserting Events..."):
+                # 1. Publish Events & Get IDs
+                # Convert DF to list of dicts
+                events_data = staged_events_df.to_dict(orient="records")
+                
+                # repo.publish_events returns map: (season, round) -> event_id
+                event_map = repo.publish_events(events_data)
+                
+                st.success(f"✅ Processed {len(events_data)} events.")
+                
+            with st.spinner("Linking & Upserting Sessions..."):
+                # 2. Prepare Sessions
+                # We need to map 'temp_event_id' in sessions to 'round_number' in events
+                # so we can use event_map to find the real UUID.
+                
+                # Create map: temp_id -> round_number from staged_events
+                # Ensure types match (int vs int)
+                temp_id_to_round = dict(zip(staged_events_df["temp_id"], staged_events_df["round_number"]))
+                
+                sessions_data = staged_sessions_df.to_dict(orient="records")
+                
+                # Enrich sessions with parent_round
+                valid_sessions = []
+                for sess in sessions_data:
+                    t_id = sess.get("temp_event_id")
+                    if t_id in temp_id_to_round:
+                        sess["parent_round"] = temp_id_to_round[t_id]
+                        valid_sessions.append(sess)
+                    else:
+                        st.warning(f"⚠️ Skipping session '{sess.get('name')}' - could not link to an event (temp_id {t_id}).")
+                
+                # 3. Publish Sessions
+                cnt_ins, cnt_upd = repo.publish_sessions(valid_sessions, event_map, season)
+                
+                st.success(f"✅ Processed {len(valid_sessions)} sessions (Inserted: {cnt_ins}, Updated: {cnt_upd}).")
+                
+            st.balloons()
+            st.success("🎉 Publishing complete!")
+            
+            # Clear state button
+            if st.button("Start New Import"):
+                repo.clear_staging(st.session_state.import_id)
+                for key in list(st.session_state.keys()):
+                    if key.startswith("scraper_") or key in ["draft_events", "draft_sessions", "import_id", "staged_events", "staged_sessions"]:
+                        del st.session_state[key]
+                st.session_state.scraper_step = "config"
+                st.rerun()
+                
+        except Exception as e:
+            st.error(f"Publishing failed: {e}")
+            st.exception(e)

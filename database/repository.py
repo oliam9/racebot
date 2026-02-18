@@ -83,19 +83,63 @@ class Repository:
         # Remove None/NaN values effectively 
         cleaned_events = []
         for r in records_events:
-            clean_r = {k: v for k, v in r.items() if pd.notna(v) and v != ""}
-            if "metadata" in clean_r and isinstance(clean_r["metadata"], tuple) or isinstance(clean_r["metadata"], set):
-                 # Fix weird panda artifacts if any
-                 pass
+            # Exclude UI-only columns and empty values
+            clean_r = {
+                k: v for k, v in r.items() 
+                if pd.notna(v) and v != "" and k not in ["circuit_name"]
+            }
+            
+            # Ensure dates are strings for JSON serialization
+            if "start_date" in clean_r and hasattr(clean_r["start_date"], "isoformat"):
+                clean_r["start_date"] = clean_r["start_date"].isoformat()
+            if "end_date" in clean_r and hasattr(clean_r["end_date"], "isoformat"):
+                clean_r["end_date"] = clean_r["end_date"].isoformat()
+                
             cleaned_events.append(clean_r)
 
         # Prepare sessions for staging
         stg_sessions = sessions.copy()
+        
+        # Recombine Naive Time + Offset -> ISO String if offsets exist
+        # This handles the UI "Local Time" display logic
+        if "start_time_offset" in stg_sessions.columns:
+            def combine_time(row, col_name):
+                t = row.get(col_name)
+                off = row.get(f"{col_name}_offset")
+                
+                if pd.isna(t) or t == "":
+                    return None
+                    
+                # If t is already a string (ISO), assume it's good? 
+                # But it might be the naive string from editor.
+                # If t is datetime/Timestamp
+                if isinstance(t, pd.Timestamp) or isinstance(t, datetime):
+                    t_str = t.isoformat()
+                else:
+                    t_str = str(t)
+                    
+                # If offset is present, append it
+                if pd.notna(off) and off:
+                    # If t_str already has offset? Naive usually doesn't.
+                    # Just append space/offset
+                    # ISO format: YYYY-MM-DDTHH:MM:SS+HH:MM
+                    return f"{t_str}{off}"
+                else:
+                    # Fallback to UTC assumption if no offset provided
+                    return f"{t_str}Z"
+
+            stg_sessions["start_time"] = stg_sessions.apply(lambda r: combine_time(r, "start_time"), axis=1)
+            stg_sessions["end_time"] = stg_sessions.apply(lambda r: combine_time(r, "end_time"), axis=1)
+
         stg_sessions["import_id"] = import_id
         records_sessions = stg_sessions.to_dict(orient="records")
         cleaned_sessions = []
         for r in records_sessions:
-            clean_r = {k: v for k, v in r.items() if pd.notna(v) and v != ""}
+            # Exclude offset columns from DB insert
+            clean_r = {
+                k: v for k, v in r.items() 
+                if pd.notna(v) and v != "" and not k.endswith("_offset")
+            }
             cleaned_sessions.append(clean_r)
 
         # Write to Supabase Staging Tables (assuming they exist as stg_championship_events etc)
@@ -160,15 +204,25 @@ class Repository:
                     on_conflict="championship_id,season,round_number"
                 ).execute()
                 
+                # print(f"DEBUG: Upsert res for round {evt.get('round_number')}: {res}")
+                
                 if res.data:
                     outcome = res.data[0]
                     key = (outcome["season"], outcome["round_number"])
                     lookup_map[key] = outcome["id"]
+                else:
+                    print(f"DEBUG: No data returned for round {evt.get('round_number')}")
                     
             except Exception as e:
                 print(f"Error publishing event round {evt.get('round_number')}: {e}")
-                # We continue to try other events
                 
+        if lookup_map:
+            k_sample = list(lookup_map.keys())[0]
+            print(f"DEBUG: lookup_map sample key: {k_sample} (Type: {type(k_sample[0])}, {type(k_sample[1])})")
+            print(f"DEBUG: lookup_map size: {len(lookup_map)}")
+        else:
+            print("DEBUG: lookup_map is empty!")
+            
         return lookup_map
 
     def publish_sessions(self, sessions: List[Dict[str, Any]], event_map: Dict[Tuple[int, int], str], season: int) -> Tuple[int, int]:
@@ -177,7 +231,6 @@ class Repository:
         Logic:
         1. Resolve parent event_id using (season, round_number) from session.
         2. Match by (championship_event_id, session_type, start_time).
-           Propagate updates if found, insert if not.
         """
         if not self.supabase:
             return 0, 0
@@ -185,16 +238,30 @@ class Repository:
         cnt_insert = 0
         cnt_update = 0
         
+        print(f"DEBUG: publish_sessions called with season={season} (Type: {type(season)})")
+        
         for sess in sessions:
             # Resolve parent
             parent_round = sess.get("parent_round")
             if parent_round is None:
                 print(f"Skipping session {sess.get('name')} - no parent round")
                 continue
-                
-            event_id = event_map.get((season, parent_round))
+            
+            # Debug match
+            key = (season, parent_round)
+            event_id = event_map.get(key)
+            
             if not event_id:
-                print(f"Orphan session for round {parent_round}")
+                # Try casting round to int if it's float/str
+                try:
+                    alt_key = (int(season), int(parent_round))
+                    event_id = event_map.get(alt_key)
+                except:
+                    pass
+            
+            if not event_id:
+                print(f"DEBUG: Orphan session. Key: {key}. Map has {len(event_map)} keys.")
+                # print(f"DEBUG: Map keys: {list(event_map.keys())}")
                 continue
                 
             # Prepare payload

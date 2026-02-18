@@ -354,7 +354,7 @@ class WorldRXConnector(Connector):
                     slug_country = country.lower().replace(' ', '_')
                     system_event_id = f"{series_id}_{season}_{slug_country}"
                     
-                    sessions = self._create_default_sessions(system_event_id, season)
+                    sessions = [] # self._create_default_sessions(system_event_id, season)
                     
                     event = Event(
                         event_id=system_event_id,

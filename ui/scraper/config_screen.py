@@ -92,56 +92,101 @@ def render():
                 draft_events = []
                 draft_sessions = []
                 
-                for evt in normalized_events:
-                    # Convert extracted event to DB definition
-                    # Start/End date might need adjustment if they are datetime objects
+                # Helper for circuit matching
+                def auto_match_circuit(evt_name, df_circuits):
+                    if not evt_name or df_circuits.empty:
+                        return None
                     
+                    evt_lower = str(evt_name).lower()
+                    
+                    for _, row in df_circuits.iterrows():
+                        c_id = row["id"]
+                        c_name = str(row.get("name", "")).lower()
+                        c_short = str(row.get("short_name", "")).lower()
+                        c_city = str(row.get("city", "")).lower()
+                        c_country = str(row.get("location", {}).get("country", "")).lower() if isinstance(row.get("location"), dict) else ""
+                        
+                        if c_city and c_city in evt_lower: return c_id
+                        if c_short and (c_short == evt_lower or c_short in evt_lower or evt_lower in c_short): return c_id
+                        if c_name and (c_name in evt_lower or evt_lower in c_name): return c_id
+                        if c_country and c_country == evt_lower: return c_id
+                             
+                    return None
+                
+                for idx, evt in enumerate(normalized_events, start=1):
+                    # Convert extracted event to DB definition
                     e_dict = {
                         "championship_id": selected_champ_id,
-                        "circuit_id": selected_circuit_id, # Default, can be overridden per row if we implemented circuit matching logic
+                        "circuit_id": selected_circuit_id, 
                         "name": evt.name,
-                        "round_number": 0, # Scraper needs to provide this or we generate it?
+                        "round_number": idx, 
                         "season": season,
                         "start_date": evt.start_date,
                         "end_date": evt.end_date,
-                        "is_confirmed": True, # Assumption
+                        "is_confirmed": True,
                         "is_cancelled": False,
-                        "metadata": {}, # Could store original source URL etc
-                        "id": None, # Ensure ID is None so DB generates it
+                        "metadata": {},
+                        "id": None, 
                     }
                     
-                    # Try to match circuit by name if not provided globally?
-                    # For now keep simple: usage of global selector or manual edit in next step.
-                    
+                    # Auto-match circuit if not set
+                    if e_dict["circuit_id"] is None and not circuits_df.empty:
+                         match_id = auto_match_circuit(e_dict["name"], circuits_df)
+                         if match_id:
+                             e_dict["circuit_id"] = match_id
+
                     draft_events.append(e_dict)
                     
-                    # Sessions
-                    # We need a way to link sessions to this event in the draft.
-                    # We can use a temporary ID or just index.
-                    # Let's use 'temp_id' for UI linkage
-                    temp_evt_id = len(draft_events) # 1-based index as int ID for now
+                    # LINKAGE
+                    temp_evt_id = len(draft_events)
                     draft_events[-1]["temp_id"] = temp_evt_id
                     
+                    # Sessions
                     for sess in evt.sessions:
                         s_dict = {
                             "temp_event_id": temp_evt_id, # Linkage
                             "name": sess.name,
-                            "session_type": sess.type.value.lower(), # Enum mapping needs care
-                            "start_time": sess.start, # ISO string? needs datetime
+                            "session_type": sess.type.value.lower(),
+                            "start_time": sess.start,
                             "end_time": sess.end,
                             "is_cancelled": sess.status == "CANCELLED",
-                            "id": None, # Ensure ID is None
-                            "championship_event_id": None # Linked via temp_id for now
+                            "id": None, 
+                            "championship_event_id": None
                         }
                         draft_sessions.append(s_dict)
 
                 # Store in session state
                 st.session_state.draft_events = pd.DataFrame(draft_events)
                 df_sessions = pd.DataFrame(draft_sessions)
+                
                 if not df_sessions.empty:
-                    # Ensure datetime objects for editor compatibility
-                    df_sessions["start_time"] = pd.to_datetime(df_sessions["start_time"], errors="coerce")
-                    df_sessions["end_time"] = pd.to_datetime(df_sessions["end_time"], errors="coerce")
+                    # Helper to split ISO string into Naive Local Time + Offset
+                    import dateutil.parser
+                    
+                    def parse_local(iso_str):
+                        if not iso_str: return None, None
+                        try:
+                            dt = dateutil.parser.parse(str(iso_str))
+                            # Return Naive Datetime (Wall Time), Offset String (e.g. "+11:00")
+                            offset_str = dt.strftime("%z")
+                            # Insert colon in offset if needed (python %z is +1100, ISO often +11:00)
+                            if offset_str and len(offset_str) == 5:
+                                offset_str = offset_str[:3] + ":" + offset_str[3:]
+                                
+                            return dt.replace(tzinfo=None), offset_str
+                        except:
+                            return None, None
+
+                    # Apply to start_time
+                    s_parsed = df_sessions["start_time"].apply(parse_local)
+                    df_sessions["start_time"] = s_parsed.apply(lambda x: x[0])
+                    df_sessions["start_time_offset"] = s_parsed.apply(lambda x: x[1])
+                    
+                    # Apply to end_time
+                    e_parsed = df_sessions["end_time"].apply(parse_local)
+                    df_sessions["end_time"] = e_parsed.apply(lambda x: x[0])
+                    df_sessions["end_time_offset"] = e_parsed.apply(lambda x: x[1])
+
                 st.session_state.draft_sessions = df_sessions
                 st.session_state.scraper_config = {
                     "championship_id": selected_champ_id,

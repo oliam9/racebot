@@ -312,10 +312,10 @@ class F2Connector(Connector):
         if not round_num:
             return None
             
-        # USER REQUEST: "name of event should be the exact what scrapper reads."
-        # Attempt to find the most direct name field.
-        # Common FIA keys: MeetingName, Name, Title.
-        name = item.get('MeetingName', item.get('Name', item.get('CircuitName', "Unknown Event")))
+        # USER REQUEST: "i need race name... revert to the data that you get from the api"
+        # Debugging shows 'CircuitShortName' (e.g. "Melbourne") is the closest to "Race Name" in F2 context.
+        # 'CircuitName' is "Albert Park Circuit" (Track Name).
+        name = item.get('CircuitShortName', item.get('CountryName', "Unknown Event"))
         
         event_id = f"{series_id}_{season}_r{round_num}"
         
@@ -408,9 +408,9 @@ class F2Connector(Connector):
             except Exception as e:
                 logger.warning(f"Failed to parse session {sess_item.get('SessionName')}: {e}")
 
-        # If no sessions parsed, create defaults (fallback)
-        if not sessions:
-            sessions = self._create_default_sessions(event_id, season)
+        # If no sessions parsed, return empty list (don't create defaults as it creates "null stuff" in DB)
+        # if not sessions:
+        #     sessions = self._create_default_sessions(event_id, season)
 
         return Event(
             event_id=event_id,

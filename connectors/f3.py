@@ -308,7 +308,7 @@ class F3Connector(Connector):
         if not round_num:
             return None
             
-        name = f"Round {round_num}: {item.get('CircuitShortName', 'Unknown')}"
+        name = item.get('CircuitShortName', 'Unknown')
         event_id = f"{series_id}_{season}_r{round_num}"
         
         # Dates
@@ -357,7 +357,7 @@ class F3Connector(Connector):
                     if "SR" in s_short or "SPRINT" in s_name.upper():
                         s_type = SessionType.SPRINT
                     elif "FR" in s_short or "FEATURE" in s_name.upper():
-                        s_type = SessionType.FEATURE
+                        s_type = SessionType.RACE
                     else:
                         s_type = SessionType.RACE
                 elif "PRACTICE" in s_code:
@@ -393,9 +393,9 @@ class F3Connector(Connector):
             except Exception as e:
                 logger.warning(f"Failed to parse session {sess_item.get('SessionName')}: {e}")
 
-        # If no sessions parsed, create defaults (fallback)
-        if not sessions:
-            sessions = self._create_default_sessions(event_id, season)
+        # If no sessions parsed, return empty list (don't create defaults as it creates "null stuff" in DB)
+        # if not sessions:
+        #     sessions = self._create_default_sessions(event_id, season)
 
         return Event(
             event_id=event_id,

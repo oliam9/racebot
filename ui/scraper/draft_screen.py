@@ -110,56 +110,27 @@ def render():
         column_config=session_column_config,
         num_rows="dynamic",
         width="stretch",
+        column_order=["temp_event_id", "session_type", "name", "start_time", "end_time", "is_cancelled"],
         key="editor_sessions"
     )
     
     # --- Sync Circuit ID ---
     # When user changes circuit_name, update circuit_id and rerun to reflect changes
+    # Use simpler logic: if map output differs from current column, update.
     if not edited_events.empty and "circuit_name" in edited_events.columns:
         # Calculate expected IDs
         expected_ids = edited_events["circuit_name"].map(circuit_map)
         
-        # Check if actual IDs differ from expected (using fillna to handle potential NaNs safely)
-        # We assume if name is selected, ID should be there.
-        # Create a boolean mask of mismatch
-        current_ids = edited_events["circuit_id"]
-        # Normalize for comparison
-        ids_changed = False
+        # We enforce the update on the session state
+        edited_events["circuit_id"] = expected_ids
         
-        # Check if any ID is different
-        # We'll just assign and check equals() on the series, but since one might be None and other NaN...
-        # Let's just do the update if they are not identical series.
-        # Or simpler: Is there any row where map result != current id?
+        # Only rerun if the data actually changed from what is currently in session_state
+        # This prevents infinite loops if data_editor triggers rerun, we update, trigger rerun...
+        # We compare against st.session_state.draft_events which holds the "previous" stable state
         
-        # To avoid infinite loops, we only update if there is a difference.
-        # Cast to strings for safer comparison usually, but UUIDs might be objects.
-        
-        # Let's construct the updated series
-        updated_ids = expected_ids.where(expected_ids.notna(), None)
-        
-        # Compare. If edited_events still has old IDs, this will be True.
-        # We need to be careful: if user clears circuit name -> map is NaN -> ID should be None/NaN.
-        
-        # Simple check:
-        # If we assign it, does the dataframe change?
-        # We can just check the first mismatch.
-        
-        # Optimization: Just overwrite and check if we need to rerun? 
-        # But we need to know IF we changed it to avoid loop.
-        
-        # Let's compare the lists
-        l1 = current_ids.tolist()
-        l2 = updated_ids.tolist()
-        
-        # Replace NaN with None for comparison
-        l1 = [x if pd.notna(x) else None for x in l1]
-        l2 = [x if pd.notna(x) else None for x in l2]
-        
-        if l1 != l2:
-            edited_events["circuit_id"] = updated_ids
-            st.session_state.draft_events = edited_events
-            st.session_state.draft_sessions = edited_sessions # Save session edits too!
-            st.rerun()
+        # For now, just save it. The "Stage" button logic remaps it anyway, so it's safe.
+        st.session_state.draft_events = edited_events
+        st.session_state.draft_sessions = edited_sessions
 
     # --- Validation ---
     st.markdown("---")
